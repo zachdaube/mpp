@@ -122,7 +122,22 @@ class GraphDataset(GeoDataset):
     def get(self, idx):
         return self.graphs[idx]
     
-
+class SMILESDataset(Dataset):
+    """Dataset for sequence-based models (ChemBERTa, transformers)"""
+    def __init__(self, smiles_list, labels):
+        self.smiles = smiles_list
+        self.labels = labels
+    
+    def __len__(self):
+        return len(self.smiles)
+    
+    def __getitem__(self, idx):
+        return {
+            'smiles': self.smiles[idx],
+            'label': torch.FloatTensor([self.labels[idx]])
+        }
+    
+    
 def load_data(config):
     """Load train/val/test datasets"""
     train_df = pd.read_csv('data/lipophilicity_train.csv')
@@ -164,6 +179,20 @@ def load_data(config):
             val_df['Y'].values
         )
         test_dataset = GraphDataset(
+            test_df['Drug'].values,
+            test_df['Y'].values
+        )
+
+    elif featurizer == 'smiles_text': 
+        train_dataset = SMILESDataset(
+            train_df['Drug'].values,
+            train_df['Y'].values
+        )
+        val_dataset = SMILESDataset(
+            val_df['Drug'].values,
+            val_df['Y'].values
+        )
+        test_dataset = SMILESDataset(
             test_df['Drug'].values,
             test_df['Y'].values
         )

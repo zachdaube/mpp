@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv, NNConv, global_mean_pool
 import pytorch_lightning as pl
 from ogb.utils.features import get_atom_feature_dims, get_bond_feature_dims
+from transformers import AutoModel, AutoTokenizer
+import torch.nn as nn
 
 
 #class BaselineModel:
@@ -330,3 +332,164 @@ class GATModel(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {'scheduler': scheduler, 'monitor': 'val_mae'}
         }
+
+
+
+class ChemBERTaModel(pl.LightningModule):
+    """
+    ChemBERTa for molecular property prediction
+    Uses attention-weighted pooling instead of just [CLS] token
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.save_hyperparameters()
+        
+        model_name = config['model'].get('pretrained_model', 'seyonec/ChemBERTa-zinc-base-v1')
+        
+        # Load pretrained ChemBERTa
+        self.encoder = AutoModel.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Freeze encoder if specified
+        if config['model'].get('freeze_encoder', False):
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+            print("🔒 Encoder frozen - only training prediction head")
+        else:
+            print("🔓 Fine-tuning entire model")
+        
+        hidden_size = self.encoder.config.hidden_size  # 768 for base model
+        
+        # Attention pooling layer (learns which tokens matter)
+        self.attention_pooling = nn.Sequential(
+            nn.Linear(hidden_size, 256),
+            nn.Tanh(),
+            nn.Linear(256, 1)
+        )
+        
+        # Prediction head
+        dropout = config['model'].get('dropout', 0.1)
+        self.regressor = nn.Sequential(
+            nn.Linear(hidden_size, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, 1)
+        )
+        
+    def forward(self, smiles_list):
+        # Tokenize SMILES
+        encoded = self.tokenizer(
+            smiles_list,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors='pt'
+        ).to(self.device)
+        
+        # Get embeddings from encoder
+        outputs = self.encoder(**encoded)
+        token_embeddings = outputs.last_hidden_state  # [batch, seq_len, hidden_size]
+        
+        # Attention-weighted pooling
+        # Compute attention scores for each token
+        attention_scores = self.attention_pooling(token_embeddings)  # [batch, seq_len, 1]
+        attention_weights = torch.softmax(attention_scores, dim=1)   # [batch, seq_len, 1]
+        
+        # Weighted sum of token embeddings
+        pooled = torch.sum(token_embeddings * attention_weights, dim=1)  # [batch, hidden_size]
+        
+        # Predict
+        pred = self.regressor(pooled)
+        return pred.squeeze()
+    
+    def training_step(self, batch, batch_idx):
+        smiles = batch['smiles']
+        labels = batch['label'].squeeze()
+        
+        pred = self(smiles)
+        loss = F.l1_loss(pred, labels)
+        
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(labels))
+        self.log('train_mae', loss, on_step=False, on_epoch=True, batch_size=len(labels))
+        
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        smiles = batch['smiles']
+        labels = batch['label'].squeeze()
+        
+        pred = self(smiles)
+        mae = F.l1_loss(pred, labels)
+        
+        self.log('val_loss', mae, on_step=False, on_epoch=True, prog_bar=True, batch_size=len(labels))
+        self.log('val_mae', mae, on_step=False, on_epoch=True, batch_size=len(labels))
+        
+        return mae
+    
+    def test_step(self, batch, batch_idx):
+        smiles = batch['smiles']
+        labels = batch['label'].squeeze()
+        
+        pred = self(smiles)
+        mae = F.l1_loss(pred, labels)
+        
+        self.log('test_mae', mae, on_step=False, on_epoch=True, batch_size=len(labels))
+        
+        return mae
+    
+    def configure_optimizers(self):
+        lr = self.config['training'].get('lr', 2e-5)
+        weight_decay = self.config['training'].get('weight_decay', 0.01)
+        
+        # Use AdamW (better for transformers)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
+        
+        # Linear warmup + decay scheduler
+        num_training_steps = self.config['training'].get('num_training_steps', 1000)
+        num_warmup_steps = int(0.1 * num_training_steps)  # 10% warmup
+        
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=lr,
+            total_steps=num_training_steps,
+            pct_start=0.1,  # 10% warmup
+            anneal_strategy='cos'
+        )
+        
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'interval': 'step'  # Update every step, not epoch
+            }
+        }
+    
+    def get_attention_weights(self, smiles_list):
+        """
+        Extract attention weights for visualization
+        Returns: attention weights for each token in each molecule
+        """
+        self.eval()
+        with torch.no_grad():
+            encoded = self.tokenizer(
+                smiles_list,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors='pt'
+            ).to(self.device)
+            
+            outputs = self.encoder(**encoded)
+            token_embeddings = outputs.last_hidden_state
+            
+            attention_scores = self.attention_pooling(token_embeddings)
+            attention_weights = torch.softmax(attention_scores, dim=1)
+            
+            # Get tokens for each sequence
+            tokens = [self.tokenizer.convert_ids_to_tokens(ids) for ids in encoded['input_ids']]
+            
+            return tokens, attention_weights.cpu().numpy()

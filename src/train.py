@@ -8,6 +8,8 @@ import pandas as pd
 import time
 import wandb
 from torch_geometric.loader import DataLoader as GeoDataLoader
+from src.models import BaselineModel, GNNModel, GATModel, ChemBERTaModel
+from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
@@ -138,6 +140,84 @@ def train_gnn_model(config, train_dataset, val_dataset, test_dataset, wandb_run)
     }
 
 
+
+def train_chemberta_model(config, train_dataset, val_dataset, test_dataset, wandb_run):
+    """Train ChemBERTa models"""
+    print(f"\nTraining ChemBERTa model...")
+    
+    # Create data loaders (regular DataLoader, not GeoDataLoader)
+    batch_size = config['training'].get('batch_size', 16)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
+    
+    # Calculate training steps for scheduler
+    num_training_steps = len(train_loader) * config['training'].get('max_epochs', 10)
+    config['training']['num_training_steps'] = num_training_steps
+    
+    # Create model
+    model = ChemBERTaModel(config)
+    num_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model has {num_params:,} parameters ({trainable_params:,} trainable)")
+    
+    # WandB logger
+    wandb_logger = WandbLogger(experiment=wandb_run, log_model=False)
+    
+    # Callbacks
+    checkpoint_callback = ModelCheckpoint(
+        dirpath='results/checkpoints',
+        filename=f'{config["name"]}-{{epoch:02d}}-{{val_mae:.4f}}',
+        monitor='val_mae',
+        mode='min',
+        save_top_k=1,
+        verbose=True
+    )
+    
+    early_stop = EarlyStopping(
+        monitor='val_mae',
+        patience=config['training'].get('patience', 5),  # Lower patience for transformers
+        mode='min',
+        verbose=True
+    )
+    
+    # Trainer
+    trainer = pl.Trainer(
+        max_epochs=config['training'].get('max_epochs', 10),
+        callbacks=[checkpoint_callback, early_stop],
+        logger=wandb_logger,
+        enable_progress_bar=True,
+        log_every_n_steps=10,
+        accelerator='auto',
+        devices=1,
+        deterministic=True,
+        gradient_clip_val=1.0  # Clip gradients for stability
+    )
+    
+    # Train
+    start_time = time.time()
+    trainer.fit(model, train_loader, val_loader)
+    train_time = time.time() - start_time
+    
+    # Evaluate
+    trainer.test(model, train_loader, verbose=False, ckpt_path='best')
+    train_results = trainer.callback_metrics
+    
+    trainer.test(model, val_loader, verbose=False, ckpt_path='best')
+    val_results = trainer.callback_metrics
+    
+    trainer.test(model, test_loader, verbose=False, ckpt_path='best')
+    test_results = trainer.callback_metrics
+    
+    return {
+        'train_mae': train_results.get('test_mae', float('nan')),
+        'val_mae': val_results.get('test_mae', float('nan')),
+        'test_mae': test_results.get('test_mae', float('nan')),
+        'train_time': train_time,
+        'num_params': trainable_params  # Report only trainable params
+    }
+
+
 def train_model(config):
     """Main training function - orchestrates everything"""
     print(f"\n{'='*60}")
@@ -176,6 +256,8 @@ def train_model(config):
         metrics = train_baseline_model(config, train_dataset, val_dataset, test_dataset, run)
     elif model_type in ['GNN', 'GAT']:
         metrics = train_gnn_model(config, train_dataset, val_dataset, test_dataset, run)
+    elif model_type == 'ChemBERTa':  # NEW
+        metrics = train_chemberta_model(config, train_dataset, val_dataset, test_dataset, run)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     
