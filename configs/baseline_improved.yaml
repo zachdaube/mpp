@@ -1,0 +1,16 @@
+name: "baseline_rf_combined"
+
+model:
+  type: "RandomForest"
+  n_estimators: 300
+  max_depth: 30
+  min_samples_split: 5
+  min_samples_leaf: 2
+
+data:
+  featurizer: "combined"
+  fp_size: 2048
+  radius: 3
+
+training:
+  seed: 42
