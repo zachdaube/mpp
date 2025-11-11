@@ -4,9 +4,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.nn import GCNConv, GATConv, NNConv, global_mean_pool
 import pytorch_lightning as pl
-from ogb.utils.features import get_atom_feature_dims
+from ogb.utils.features import get_atom_feature_dims, get_bond_feature_dims
 
 
 #class BaselineModel:
@@ -114,7 +114,7 @@ class BaselineModel:
         return mae
 
 class GNNModel(pl.LightningModule):
-    """Graph Neural Network for molecular property prediction with OGB features"""
+    """Graph Neural Network with edge features for molecular property prediction"""
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -124,25 +124,156 @@ class GNNModel(pl.LightningModule):
         num_layers = config['model'].get('num_layers', 3)
         dropout = config['model'].get('dropout', 0.2)
         
-        # OGB atom features: 9 different feature types with different vocab sizes
-        # [atomic_num, chirality, degree, formal_charge, num_h, num_radical, 
-        #  hybridization, aromatic, in_ring]
+        # OGB atom features: 9 different feature types
         atom_feature_dims = get_atom_feature_dims()
         
-        # Create embedding for each atom feature type
-        self.atom_encoders = nn.ModuleList()
-        for dim in atom_feature_dims:
-            self.atom_encoders.append(nn.Embedding(dim, hidden_dim))
+        # OGB bond features: 3 different feature types
+        bond_feature_dims = get_bond_feature_dims()
         
-        # GNN layers
+        # Atom encoder
+        self.atom_encoders = nn.ModuleList([
+            nn.Embedding(dim, hidden_dim) for dim in atom_feature_dims
+        ])
+        
+        # Bond encoder - encode edge features
+        self.bond_encoders = nn.ModuleList([
+            nn.Embedding(dim, hidden_dim) for dim in bond_feature_dims
+        ])
+        
+        # Edge network for NNConv (processes edge features)
+        edge_nn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * hidden_dim, hidden_dim * hidden_dim)
+        )
+        
+        # GNN layers with edge features
         self.convs = nn.ModuleList()
-        for _ in range(num_layers):
-            self.convs.append(GCNConv(hidden_dim, hidden_dim))
+        self.convs.append(NNConv(hidden_dim, hidden_dim, edge_nn, aggr='mean'))
         
-        # Batch normalization (optional but helps)
-        self.batch_norms = nn.ModuleList()
-        for _ in range(num_layers):
-            self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
+        for _ in range(num_layers - 1):
+            edge_nn = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim * hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim * hidden_dim, hidden_dim * hidden_dim)
+            )
+            self.convs.append(NNConv(hidden_dim, hidden_dim, edge_nn, aggr='mean'))
+        
+        # Batch normalization
+        self.batch_norms = nn.ModuleList([
+            nn.BatchNorm1d(hidden_dim) for _ in range(num_layers)
+        ])
+        
+        # Prediction head
+        self.fc = nn.Linear(hidden_dim, 1)
+        self.dropout = dropout
+        
+    def forward(self, data):
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        
+        # Encode atom features
+        h = 0
+        for i, encoder in enumerate(self.atom_encoders):
+            h = h + encoder(x[:, i])
+        
+        # Encode edge features (bond types, stereochemistry, conjugation)
+        edge_h = 0
+        for i, encoder in enumerate(self.bond_encoders):
+            edge_h = edge_h + encoder(edge_attr[:, i])
+        
+        # Message passing WITH edge features
+        for conv, bn in zip(self.convs, self.batch_norms):
+            h = conv(h, edge_index, edge_h)
+            h = bn(h)
+            h = F.relu(h)
+            h = F.dropout(h, p=self.dropout, training=self.training)
+        
+        # Graph-level pooling
+        h = global_mean_pool(h, batch)
+        
+        # Prediction
+        return self.fc(h)
+    
+    def training_step(self, batch, batch_idx):
+        pred = self(batch).squeeze()
+        loss = F.l1_loss(pred, batch.y.squeeze())
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch.y))
+        self.log('train_mae', loss, on_step=False, on_epoch=True, batch_size=len(batch.y))
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        pred = self(batch).squeeze()
+        mae = F.l1_loss(pred, batch.y.squeeze())
+        self.log('val_loss', mae, on_step=False, on_epoch=True, prog_bar=True, batch_size=len(batch.y))
+        self.log('val_mae', mae, on_step=False, on_epoch=True, batch_size=len(batch.y))
+        return mae
+    
+    def test_step(self, batch, batch_idx):
+        pred = self(batch).squeeze()
+        mae = F.l1_loss(pred, batch.y.squeeze())
+        self.log('test_mae', mae, on_step=False, on_epoch=True, batch_size=len(batch.y))
+        return mae
+    
+    def configure_optimizers(self):
+        lr = self.config['training'].get('lr', 0.001)
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=10
+        )
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {'scheduler': scheduler, 'monitor': 'val_mae'}
+        }
+
+
+class GATModel(pl.LightningModule):
+    """Graph Attention Network for molecular property prediction"""
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.save_hyperparameters()
+        
+        hidden_dim = config['model'].get('hidden_dim', 128)
+        num_layers = config['model'].get('num_layers', 3)
+        dropout = config['model'].get('dropout', 0.3)
+        heads = config['model'].get('heads', 4)
+        
+        # OGB features
+        atom_feature_dims = get_atom_feature_dims()
+        
+        # Atom encoder
+        self.atom_encoders = nn.ModuleList([
+            nn.Embedding(dim, hidden_dim) for dim in atom_feature_dims
+        ])
+        
+        # GAT layers with multi-head attention
+        self.convs = nn.ModuleList()
+        
+        # First layer: hidden_dim -> hidden_dim (with heads)
+        self.convs.append(GATConv(
+            hidden_dim, 
+            hidden_dim // heads, 
+            heads=heads, 
+            dropout=dropout,
+            add_self_loops=True,
+            concat=True
+        ))
+        
+        # Middle layers
+        for _ in range(num_layers - 1):
+            self.convs.append(GATConv(
+                hidden_dim,
+                hidden_dim // heads,
+                heads=heads,
+                dropout=dropout,
+                add_self_loops=True,
+                concat=True
+            ))
+        
+        # Batch normalization
+        self.batch_norms = nn.ModuleList([
+            nn.BatchNorm1d(hidden_dim) for _ in range(num_layers)
+        ])
         
         # Prediction head
         self.fc = nn.Linear(hidden_dim, 1)
@@ -152,13 +283,12 @@ class GNNModel(pl.LightningModule):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         
         # Encode atom features
-        # x shape: [num_atoms, 9] where each column is an integer index
         h = 0
         for i, encoder in enumerate(self.atom_encoders):
-            h = h + encoder(x[:, i])  # Sum embeddings from all feature types
+            h = h + encoder(x[:, i])
         
-        # Message passing
-        for i, (conv, bn) in enumerate(zip(self.convs, self.batch_norms)):
+        # Message passing with attention
+        for conv, bn in zip(self.convs, self.batch_norms):
             h = conv(h, edge_index)
             h = bn(h)
             h = F.relu(h)
@@ -168,54 +298,35 @@ class GNNModel(pl.LightningModule):
         h = global_mean_pool(h, batch)
         
         # Prediction
-        out = self.fc(h)
-        return out
+        return self.fc(h)
     
     def training_step(self, batch, batch_idx):
         pred = self(batch).squeeze()
         loss = F.l1_loss(pred, batch.y.squeeze())
-        
-        # Log metrics
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch.y))
         self.log('train_mae', loss, on_step=False, on_epoch=True, batch_size=len(batch.y))
-        
         return loss
     
     def validation_step(self, batch, batch_idx):
         pred = self(batch).squeeze()
         mae = F.l1_loss(pred, batch.y.squeeze())
-        
-        # Log metrics
         self.log('val_loss', mae, on_step=False, on_epoch=True, prog_bar=True, batch_size=len(batch.y))
         self.log('val_mae', mae, on_step=False, on_epoch=True, batch_size=len(batch.y))
-        
         return mae
     
     def test_step(self, batch, batch_idx):
         pred = self(batch).squeeze()
         mae = F.l1_loss(pred, batch.y.squeeze())
-        
         self.log('test_mae', mae, on_step=False, on_epoch=True, batch_size=len(batch.y))
-        
         return mae
     
     def configure_optimizers(self):
         lr = self.config['training'].get('lr', 0.001)
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        
-        # Learning rate scheduler (removed verbose parameter)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, 
-            mode='min', 
-            factor=0.5, 
-            patience=10
-            # verbose=True  # ❌ REMOVE THIS LINE
+            optimizer, mode='min', factor=0.5, patience=10
         )
-        
         return {
             'optimizer': optimizer,
-            'lr_scheduler': {
-                'scheduler': scheduler,
-                'monitor': 'val_mae',
-            }
+            'lr_scheduler': {'scheduler': scheduler, 'monitor': 'val_mae'}
         }

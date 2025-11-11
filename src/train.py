@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import load_data
-from src.models import BaselineModel, GNNModel
+from src.models import BaselineModel, GNNModel, GATModel
 
 
 def set_seed(seed):
@@ -68,7 +68,14 @@ def train_gnn_model(config, train_dataset, val_dataset, test_dataset, wandb_run)
     test_loader = GeoDataLoader(test_dataset, batch_size=batch_size)
     
     # Create model
-    model = GNNModel(config)
+    model_type = config['model']['type']
+    if model_type == 'GNN':
+        model = GNNModel(config)
+    elif model_type == 'GAT':
+        model = GATModel(config)
+    else:
+        raise ValueError(f"Unknown GNN type: {model_type}")
+    
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model has {num_params:,} parameters")
     
@@ -167,7 +174,7 @@ def train_model(config):
     # Route to appropriate training function
     if model_type in ['RandomForest', 'XGBoost']:
         metrics = train_baseline_model(config, train_dataset, val_dataset, test_dataset, run)
-    elif model_type == 'GNN':
+    elif model_type in ['GNN', 'GAT']:
         metrics = train_gnn_model(config, train_dataset, val_dataset, test_dataset, run)
     else:
         raise ValueError(f"Unknown model type: {model_type}")

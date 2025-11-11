@@ -1,0 +1,18 @@
+name: "gat_medium"
+
+model:
+  type: "GAT"
+  hidden_dim: 128
+  num_layers: 3
+  dropout: 0.3
+  heads: 4
+
+data:
+  featurizer: "graph"
+
+training:
+  lr: 0.001
+  batch_size: 32
+  max_epochs: 100
+  patience: 20
+  seed: 42

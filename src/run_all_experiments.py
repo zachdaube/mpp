@@ -48,6 +48,11 @@ def main():
         'configs/gnn_small.yaml',
         'configs/gnn.yaml',
         'configs/gnn_large.yaml',
+
+        #GAT variants
+        'configs/gat_small.yaml',
+        'configs/gat_medium.yaml',
+        'configs/gat_large.yaml',
     ]
     
     # Filter to only configs that exist
