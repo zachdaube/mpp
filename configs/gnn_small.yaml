@@ -1,9 +1,9 @@
-name: "gnn_medium"
+name: "gnn_small"
 
 model:
   type: "GNN"
-  hidden_dim: 128
-  num_layers: 3
+  hidden_dim: 64
+  num_layers: 2
   dropout: 0.2
 
 data:

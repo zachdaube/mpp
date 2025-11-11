@@ -203,13 +203,13 @@ class GNNModel(pl.LightningModule):
         lr = self.config['training'].get('lr', 0.001)
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
-        # Optional: Add learning rate scheduler
+        # Learning rate scheduler (removed verbose parameter)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, 
             mode='min', 
             factor=0.5, 
-            patience=10, 
-            verbose=True
+            patience=10
+            # verbose=True  # ❌ REMOVE THIS LINE
         )
         
         return {
