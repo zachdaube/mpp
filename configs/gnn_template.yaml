@@ -1,0 +1,17 @@
+name: "gnn_sweep"  # WandB will append sweep ID
+
+model:
+  type: "GNN"
+  hidden_dim: 128  # Will be overridden by sweep
+  num_layers: 3    # Will be overridden by sweep
+  dropout: 0.2     # Will be overridden by sweep
+
+data:
+  featurizer: "graph"
+
+training:
+  lr: 0.001        # Will be overridden by sweep
+  batch_size: 32   # Will be overridden by sweep
+  max_epochs: 100
+  patience: 20
+  seed: 42
