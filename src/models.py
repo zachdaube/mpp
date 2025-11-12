@@ -11,48 +11,6 @@ from transformers import AutoModel, AutoTokenizer
 import torch.nn as nn
 
 
-#class BaselineModel:
-# """Classical ML baseline (RF or XGBoost)"""
-# def __init__(self, config):
-#     self.config = config
-#     model_type = config['model']['type']
-    
-#     if model_type == 'RandomForest':
-#         self.model = RandomForestRegressor(
-#             n_estimators=config['model'].get('n_estimators', 100),
-#             max_depth=config['model'].get('max_depth', 20),
-#             random_state=config['training']['seed'],
-#             n_jobs=-1
-#         )
-#     elif model_type == 'XGBoost':
-#         self.model = xgb.XGBRegressor(
-#             n_estimators=config['model'].get('n_estimators', 100),
-#             max_depth=config['model'].get('max_depth', 6),
-#             learning_rate=config['model'].get('learning_rate', 0.1),
-#             random_state=config['training']['seed']
-#         )
-#     else:
-#         raise ValueError(f"Unknown model type: {model_type}")
-
-# def fit(self, train_dataset, val_dataset=None):
-#     """Train the model"""
-#     X_train = np.array([train_dataset[i]['features'].numpy() for i in range(len(train_dataset))])
-#     y_train = np.array([train_dataset[i]['label'].item() for i in range(len(train_dataset))])
-    
-#     self.model.fit(X_train, y_train)
-
-# def predict(self, dataset):
-#     """Make predictions"""
-#     X = np.array([dataset[i]['features'].numpy() for i in range(len(dataset))])
-#     return self.model.predict(X)
-
-# def evaluate(self, dataset):
-#     """Calculate MAE"""
-#     preds = self.predict(dataset)
-#     y_true = np.array([dataset[i]['label'].item() for i in range(len(dataset))])
-#     mae = np.mean(np.abs(preds - y_true))
-#     return mae
-
 class BaselineModel:
     """Classical ML baseline (RF or XGBoost)"""
     def __init__(self, config):
