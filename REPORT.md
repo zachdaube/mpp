@@ -1,7 +1,6 @@
 # Molecular Property Prediction: Lipophilicity Estimation
 
 **Author:** Zach Daube  
-**Institution:** Emory University 
 **Date:** November 2025  
 ---
 
