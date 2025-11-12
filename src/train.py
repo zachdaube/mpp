@@ -4,21 +4,21 @@ import random
 import numpy as np
 import torch
 from pathlib import Path
+import sys
 import pandas as pd
 import time
 import wandb
 from torch_geometric.loader import DataLoader as GeoDataLoader
+import os
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+os.chdir(project_root)  # Also change working directory
 from src.models import BaselineModel, GNNModel, GATModel, ChemBERTaModel
+from src.data import load_data
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
-
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.data import load_data
-from src.models import BaselineModel, GNNModel, GATModel
 
 
 def set_seed(seed):
