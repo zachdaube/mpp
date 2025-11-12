@@ -15,7 +15,7 @@ This project implements and compares multiple machine learning architectures for
 - **Transformers** (ChemBERT) surprisingly underperformed due to dataset size limitations
 - **Ensemble methods** combining XGBoost and GCN achieved best overall performance
 
-![Model Comparison](/mpp/plots/model_comparison.png)
+![Model Comparison](/plots/model_comparison.png)
 
 ---
 
