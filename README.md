@@ -101,8 +101,7 @@ python -c "import torch; import rdkit; print('✅ Setup complete!')"
 
 ### Download Data
 
-The lipophilicity dataset is included in the `data/` folder. If missing, download from:
-- [MoleculeNet Lipophilicity Dataset](http://moleculenet.ai/datasets-1)
+The lipophilicity dataset is included in the `data/` folder.
 
 ---
 
@@ -272,11 +271,6 @@ strategy: Weighted average (inverse MAE)
 
 ---
 
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
----
 
 ## 🙏 Acknowledgments
 
@@ -328,8 +322,6 @@ wandb login
 
 - [Full Technical Report](REPORT.md)
 - [WandB Project Dashboard](https://wandb.ai/zachdaube-emory-university/molecular-property-prediction)
-- [PyTorch Geometric Docs](https://pytorch-geometric.readthedocs.io/)
-- [RDKit Documentation](https://www.rdkit.org/docs/)
 
 ---
 
