@@ -72,7 +72,7 @@ Total: 4,138 features
 - Edges: Chemical bonds with connectivity
 - No edge attributes initially (simplified)
 
-![Feature Engineering Impact](mpp/plots/feature_engineering_impact.png)
+![Feature Engineering Impact](/plots/feature_engineering_impact.png)
 
 **Key Insight:** Combined features improved classical ML performance by **13.9%** (0.762 → 0.617 MAE), demonstrating that lipophilicity correlates strongly with multiple molecular descriptors beyond substructure patterns alone.
 
@@ -143,7 +143,7 @@ Output: Lipophilicity prediction
 - Loss function: L1 (MAE)
 - Parameters: 72,705 (trainable)
 
-![Training Curves](mpp/plots/training_curves.png)
+![Training Curves](/plots/training_curves.png)
 
 **Graph Attention Network (GAT) - Failed Experiment**
 
@@ -265,7 +265,7 @@ Where weights are inversely proportional to validation MAE:
 - **Complementarity:** Different architectures make different errors
 - **Nearly equal weights** (50.1% / 49.9%) indicate similar individual performance
 
-![Ensemble Analysis](mpp/plots/ensemble_analysis.png)
+![Ensemble Analysis](/plots/ensemble_analysis.png)
 
 ---
 
@@ -273,7 +273,7 @@ Where weights are inversely proportional to validation MAE:
 
 ### 3.1 Overall Performance
 
-![Architecture Comparison](mpp/plots/architecture_comparison.png)
+![Architecture Comparison](/plots/architecture_comparison.png)
 
 | Model Category | Best Model | Test MAE | Parameters | Training Time |
 |----------------|------------|----------|------------|---------------|
@@ -371,7 +371,7 @@ Ensemble:   0.5283 MAE (↓5.5% improvement)
    - Indicates similar reliability
    - No single model dominates
 
-![Ensemble Visualization](mpp/plots/ensemble_analysis.png)
+![Ensemble Visualization](/plots/ensemble_analysis.png)
 
 ---
 
@@ -589,7 +589,7 @@ Ensemble:
 
 ## Appendix B: Additional Visualizations
 
-![Summary Table](mpp/plots/summary_table.png)
+![Summary Table](/plots/summary_table.png)
 
 ---
 
